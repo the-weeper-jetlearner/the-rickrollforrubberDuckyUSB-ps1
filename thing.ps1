@@ -24,11 +24,9 @@ Add-Type -TypeDefinition $code
 # 4. LOAD ENGINES
 Add-Type -AssemblyName PresentationCore, System.Windows.Forms, System.Drawing
 
-# 5. AUDIO SETUP
-$player = New-Object System.Windows.Media.MediaPlayer
-$player.Open([Uri]$mp3)
-# Wait for audio to be ready
-while ($player.NaturalDuration.HasTimeSpan -eq $false) { Start-Sleep -Milliseconds 100 }
+# 5. GLOBAL AUDIO SETUP (Global prevents garbage collection)
+$global:player = New-Object System.Windows.Media.MediaPlayer
+$global:player.Open([Uri]$mp3)
 
 # 6. MULTI-SCREEN SETUP
 $forms = New-Object System.Collections.Generic.List[System.Windows.Forms.Form]
@@ -47,21 +45,19 @@ $ws = New-Object -ComObject WScript.Shell
 for ($i=0; $i -lt 50; $i++) { $ws.SendKeys([char]174) }
 for ($i=0; $i -lt 25; $i++) { $ws.SendKeys([char]175) }
 
-# 8. EXECUTION
-$player.Play()
+# 8. RELIABLE PLAYBACK START
+# Wait up to 5 seconds for the media to buffer and play
+$timeout = (Get-Date).AddSeconds(5)
+$global:player.Play()
+while ($global:player.NaturalDuration.HasTimeSpan -eq $false -and (Get-Date) -lt $timeout) { 
+    Start-Sleep -Milliseconds 100 
+}
 
 try {
     # LOCK INPUT immediately as music starts
     [Win]::BlockInput($true)
 
     while ($global:running) {
-        # Check if audio has stopped or reached the end
-        # If it stops, we break the loop to trigger the 'finally' (unlock)
-        if ($player.Position -ge $player.NaturalDuration.TimeSpan -or $player.Position.TotalSeconds -eq 0) {
-            $global:running = $false
-            break
-        }
-
         # Keep BSOD on Top of everything
         foreach ($f in $forms) { 
             [Win]::SetWindowPos($f.Handle, [Win]::T, 0, 0, 0, 0, 0x0001 + 0x0002)
@@ -71,14 +67,21 @@ try {
         # Kill Task Manager if user managed to open it before the block
         Get-Process taskmgr -ErrorAction SilentlyContinue | Stop-Process -Force
 
+        # RE-LOCK Logic: If audio reaches the end OR stops for some reason, unlock and exit
+        # NaturalDuration is used to check if the song is finished
+        if ($global:player.Position -ge $global:player.NaturalDuration.TimeSpan -and $global:player.NaturalDuration.HasTimeSpan) {
+            $global:running = $false
+            break
+        }
+
         Start-Sleep -Milliseconds 200
     }
 }
 finally {
-    # CRITICAL: Always unlock input when the loop ends
+    # UNLOCK INPUT and cleanup
     [Win]::BlockInput($false) 
     foreach ($f in $forms) { $f.Close() }
-    $player.Stop(); $player.Close()
+    $global:player.Stop(); $global:player.Close()
     Remove-Item -Recurse -Force $workDir
     Stop-Process -Id $PID
 }

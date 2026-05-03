@@ -1,11 +1,9 @@
-# URLs
+# thing.ps1
 $youtube = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 $bsod    = 'https://upload.wikimedia.org/wikipedia/commons/5/56/Bsodwindows10.png'
-
-# Timer: The prank will automatically stop and clean up after 5 minutes
 $endTime = (Get-Date).AddMinutes(5)
 
-# Add Win32 API for always-on-top (HWND_TOPMOST)
+# Win32 API to keep BSOD on top
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -16,37 +14,38 @@ public class Win {
 }
 "@
 
-# Helper to launch Chrome with Autoplay allowed
+# Helper to force-launch Chrome with Autoplay allowed
 function Start-Prank {
+    # --autoplay-policy=no-user-gesture-required forces sound immediately
     Start-Process chrome "--new-window --start-fullscreen --autoplay-policy=no-user-gesture-required $youtube"
     Start-Process chrome "--new-window --start-fullscreen $bsod"
 }
 
-# Initial Launch
 Start-Prank
 
-# Main Watchdog Loop
+# Watchdog Loop: Runs independently of Chrome
 while ((Get-Date) -lt $endTime) {
-    
-    # 1. Force Max Volume
+    # 1. Constant Volume Lock
     (New-Object -ComObject WScript.Shell).SendKeys([char]175)
 
-    # 2. Watchdog: If they close Chrome, re-open it immediately
-    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
+    # 2. Re-open if they close the whole app or just the tabs
+    $chrome = Get-Process chrome -ErrorAction SilentlyContinue
+    $hasYT = $chrome | Where-Object { $_.MainWindowTitle -match "YouTube" }
+    $hasBS = $chrome | Where-Object { $_.MainWindowTitle -match "Bsod" }
+
+    if (-not $hasYT -or -not $hasBS) {
         Start-Prank
         Start-Sleep -Seconds 2
     }
 
-    # 3. Find the BSOD window and pin it to the very top
-    $chromeProcs = Get-Process chrome -ErrorAction SilentlyContinue
-    foreach ($p in $chromeProcs) {
-        if ($p.MainWindowTitle -match "Bsod") {
-            [Win]::SetWindowPos($p.MainWindowHandle, [Win]::T, 0, 0, 0, 0, 0x0001 + 0x0002)
+    # 3. Force BSOD to stay on top
+    $chrome | ForEach-Object {
+        if ($_.MainWindowTitle -match "Bsod") {
+            [Win]::SetWindowPos($_.MainWindowHandle, [Win]::T, 0, 0, 0, 0, 0x0001 + 0x0002)
         }
     }
-
     Start-Sleep -Seconds 1
 }
 
-# Cleanup: Close Chrome when the 5 minutes are up
+# Auto-cleanup after 5 minutes
 Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force

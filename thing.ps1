@@ -2,46 +2,51 @@
 $youtube = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 $bsod    = 'https://upload.wikimedia.org/wikipedia/commons/5/56/Bsodwindows10.png'
 
-# Launch YouTube fullscreen
-$yt = Start-Process chrome "--new-window --start-fullscreen $youtube" -PassThru
+# Timer: The prank will automatically stop and clean up after 5 minutes
+$endTime = (Get-Date).AddMinutes(5)
 
-# Launch BSOD fullscreen
-$bs = Start-Process chrome "--new-window --start-fullscreen $bsod" -PassThru
-
-# Allow Chrome to create windows
-Start-Sleep -Seconds 2
-
-# Add Win32 API for always-on-top
+# Add Win32 API for always-on-top (HWND_TOPMOST)
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-
 public class Win {
     [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(
-        IntPtr hWnd, IntPtr hWndInsertAfter,
-        int X, int Y, int cx, int cy, uint uFlags);
-
-    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-    public const uint SWP_NOMOVE = 0x0002;
-    public const uint SWP_NOSIZE = 0x0001;
+    public static extern bool SetWindowPos(IntPtr h, IntPtr i, int x, int y, int c, int d, uint f);
+    public static readonly IntPtr T = new IntPtr(-1);
 }
 "@
 
-# Main loop
-while (-not $yt.HasExited) {
+# Helper to launch Chrome with Autoplay allowed
+function Start-Prank {
+    Start-Process chrome "--new-window --start-fullscreen --autoplay-policy=no-user-gesture-required $youtube"
+    Start-Process chrome "--new-window --start-fullscreen $bsod"
+}
 
-    # Keep BSOD window always on top
-    if ($bs.MainWindowHandle -ne 0) {
-        [Win]::SetWindowPos(
-            $bs.MainWindowHandle,
-            [Win]::HWND_TOPMOST,
-            0, 0, 0, 0,
-            [Win]::SWP_NOMOVE + [Win]::SWP_NOSIZE
-        )
+# Initial Launch
+Start-Prank
+
+# Main Watchdog Loop
+while ((Get-Date) -lt $endTime) {
+    
+    # 1. Force Max Volume
+    (New-Object -ComObject WScript.Shell).SendKeys([char]175)
+
+    # 2. Watchdog: If they close Chrome, re-open it immediately
+    if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
+        Start-Prank
+        Start-Sleep -Seconds 2
+    }
+
+    # 3. Find the BSOD window and pin it to the very top
+    $chromeProcs = Get-Process chrome -ErrorAction SilentlyContinue
+    foreach ($p in $chromeProcs) {
+        if ($p.MainWindowTitle -match "Bsod") {
+            [Win]::SetWindowPos($p.MainWindowHandle, [Win]::T, 0, 0, 0, 0, 0x0001 + 0x0002)
+        }
     }
 
     Start-Sleep -Seconds 1
 }
 
-# When YouTube closes, script ends automatically
+# Cleanup: Close Chrome when the 5 minutes are up
+Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force

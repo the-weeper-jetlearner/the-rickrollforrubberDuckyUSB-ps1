@@ -1,53 +1,60 @@
 # --- CONFIGURATION ---
 $url = "https://qoret.com/dl/uploads/2019/07/Rick_Astley_-_Never_Gonna_Give_You_Up_Qoret.com.mp3"
 $png = "https://raw.githubusercontent.com/the-weeper-jetlearner/the-rickrollforrubberDuckyUSB-ps1/refs/heads/main/bsod.png"
-$tmp = "$env:TEMP\prank_data"
+$tmpPath = "$env:USERPROFILE\Music\tmp"
 
-# 1. Setup local folder
-if (!(Test-Path $tmp)) { New-Item -ItemType Directory -Path $tmp -Force }
-$mp3 = "$tmp\v.mp3"
-$img = "$tmp\i.png"
+# 1. Create folder and download assets
+if (!(Test-Path $tmpPath)) { New-Item -ItemType Directory -Path $tmpPath -Force }
+$mp3File = "$tmpPath\rick.mp3"
+$imgFile = "$tmpPath\bsod.png"
 
-# 2. Download silently
-Invoke-WebRequest -Uri $mp3Url -OutFile $mp3 -UseBasicParsing
-Invoke-WebRequest -Uri $pngUrl -OutFile $img -UseBasicParsing
+Write-Host "Downloading assets..." -ForegroundColor Cyan
+Invoke-WebRequest -Uri $mp3Url -OutFile $mp3File -UseBasicParsing
+Invoke-WebRequest -Uri $pngUrl -OutFile $imgFile -UseBasicParsing
 
-# 3. Open Fullscreen Image (Standard Form)
+# 2. Setup Modern Audio Engine (Terminal-Linked)
+Add-Type -AssemblyName PresentationCore
+$player = New-Object System.Windows.Media.MediaPlayer
+$player.Open([Uri]$mp3File)
+
+# 3. Setup Fullscreen BSOD Image
 Add-Type -AssemblyName System.Windows.Forms
 $form = New-Object Windows.Forms.Form
 $form.WindowState = "Maximized"
 $form.FormBorderStyle = "None"
 $form.TopMost = $true
-$form.ShowInTaskbar = $false
-$form.BackgroundImage = [System.Drawing.Image]::FromFile($img)
+$form.BackgroundImage = [System.Drawing.Image]::FromFile($imgFile)
 $form.BackgroundImageLayout = "Stretch"
+
+# 4. Start Prank
 $form.Show()
-
-# 4. Play Audio via native wmplayer (Bypasses COM issues)
-# This process is linked to the PowerShell window
-$playerProcess = Start-Process wmplayer.exe -ArgumentList "`"$mp3`"" -WindowStyle Hidden -PassThru
-
-# 5. WATCHDOG LOOP
+$player.Play()
 $ws = New-Object -ComObject WScript.Shell
+
+Write-Host "PRANK ACTIVE. Closing this window stops the music and image." -ForegroundColor Yellow
+
+# Watchdog Loop
 try {
     while ($true) {
-        # Force volume up
+        # Force System Volume to Max
         for ($i=0; $i -lt 5; $i++) { $ws.SendKeys([char]175) }
         
         # Keep BSOD on top
         $form.Activate()
         
-        # If wmplayer crashes or stops, restart it
-        if ($playerProcess.HasExited) {
-            $playerProcess = Start-Process wmplayer.exe -ArgumentList "`"$mp3`"" -WindowStyle Hidden -PassThru
+        # Infinite Audio Loop
+        if ($player.Position -ge $player.NaturalDuration.TimeSpan) {
+            $player.Position = [TimeSpan]::Zero
+            $player.Play()
         }
         
-        Start-Sleep -Seconds 1
+        Start-Sleep -Milliseconds 250
     }
 }
 finally {
-    # If terminal is closed or script stops, cleanup
-    if ($playerProcess) { Stop-Process -Id $playerProcess.Id -Force -ErrorAction SilentlyContinue }
+    # This block triggers if the terminal is closed or script is stopped
+    $player.Stop()
+    $player.Close()
     $form.Close()
-    Remove-Item -Recurse -Force $tmp
+    Remove-Item -Recurse -Force $tmpPath
 }

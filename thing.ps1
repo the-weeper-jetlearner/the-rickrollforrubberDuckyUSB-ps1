@@ -1,25 +1,27 @@
-# --- 1. CONFIGURATION ---
+# URLs - Using the RAW GitHub link for the image
 $mp3Url = "https://qoret.com/dl/uploads/2019/07/Rick_Astley_-_Never_Gonna_Give_You_Up_Qoret.com.mp3"
-$pngUrl = "https://github.com/the-weeper-jetlearner/the-rickrollforrubberDuckyUSB-ps1/blob/main/bsod.png"
-$duration = 300 # Duration in seconds (5 minutes)
+$pngUrl = "https://raw.githubusercontent.com/the-weeper-jetlearner/the-rickrollforrubberDuckyUSB-ps1/refs/heads/main/bsod.png"
 
-# --- 2. DOWNLOAD ASSETS ---
-$tmp = "$env:TEMP\sys_data"
+# Setup Temp Folder
+$tmp = "$env:TEMP\sys_cache"
 if (!(Test-Path $tmp)) { New-Item -ItemType Directory -Path $tmp -Force }
-$mp3Path = "$tmp\v.mp3"
+$mp3Path = "$tmp\a.mp3"
 $pngPath = "$tmp\i.png"
+
+# Download assets
 Invoke-WebRequest -Uri $mp3Url -OutFile $mp3Path -UseBasicParsing
 Invoke-WebRequest -Uri $pngUrl -OutFile $pngPath -UseBasicParsing
 
-# --- 3. THE "NO-TAB" AUDIO PLAYER ---
-# Uses the native Windows Media Player COM object (runs in background)
+# Load Windows Components
+Add-Type -AssemblyName System.Windows.Forms
+
+# AUDIO: Play MP3 in background via native Media Player engine
 $player = New-Object -ComObject WMPlayer.OCX
 $player.URL = $mp3Path
 $player.settings.volume = 100
 $player.controls.play()
 
-# --- 4. THE FULLSCREEN BSOD ---
-Add-Type -AssemblyName System.Windows.Forms
+# IMAGE: Create a dedicated fullscreen window (Bypasses Browsers)
 $form = New-Object Windows.Forms.Form
 $form.WindowState = "Maximized"
 $form.FormBorderStyle = "None"
@@ -28,26 +30,25 @@ $form.ShowInTaskbar = $false
 $img = [System.Drawing.Image]::FromFile($pngPath)
 $form.BackgroundImage = $img
 $form.BackgroundImageLayout = "Stretch"
-$form.Show()
 
-# --- 5. WATCHDOG LOOP ---
+# Execute
+$form.Show()
 $ws = New-Object -ComObject WScript.Shell
 $start = Get-Date
-while ((Get-Date) -lt $start.AddSeconds($duration)) {
-    # Force volume up in a loop
+
+# Watchdog Loop (Runs for 5 minutes)
+while ((Get-Date) -lt $start.AddMinutes(5)) {
+    # Force volume to 100%
     for ($i=0; $i -lt 5; $i++) { $ws.SendKeys([char]175) }
     
-    # Keep the image window on top of everything
+    # Keep the image window focused
     $form.Activate()
     
-    # Loop audio if it ends
+    # Loop audio if it stops
     if ($player.playState -eq 1) { $player.controls.play() }
     
     Start-Sleep -Milliseconds 250
 }
 
-# --- 6. CLEANUP ---
-$player.controls.stop()
-$form.Close()
-$img.Dispose()
-Remove-Item -Recurse -Force $tmp
+# Cleanup
+$player.controls.stop(); $form.Close(); $img.Dispose(); Remove-Item -Recurse -Force $tmp

@@ -1,51 +1,53 @@
-# thing.ps1
-$youtube = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-$bsod    = 'https://upload.wikimedia.org/wikipedia/commons/5/56/Bsodwindows10.png'
-$endTime = (Get-Date).AddMinutes(5)
+# --- 1. CONFIGURATION ---
+$mp3Url = "https://qoret.com/dl/uploads/2019/07/Rick_Astley_-_Never_Gonna_Give_You_Up_Qoret.com.mp3"
+$pngUrl = "https://github.com/the-weeper-jetlearner/the-rickrollforrubberDuckyUSB-ps1/blob/main/bsod.png"
+$duration = 300 # Duration in seconds (5 minutes)
 
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class Win {
-    [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(IntPtr h, IntPtr i, int x, int y, int c, int d, uint f);
-    public static readonly IntPtr T = new IntPtr(-1);
-}
-"@
+# --- 2. DOWNLOAD ASSETS ---
+$tmp = "$env:TEMP\sys_data"
+if (!(Test-Path $tmp)) { New-Item -ItemType Directory -Path $tmp -Force }
+$mp3Path = "$tmp\v.mp3"
+$pngPath = "$tmp\i.png"
+Invoke-WebRequest -Uri $mp3Url -OutFile $mp3Path -UseBasicParsing
+Invoke-WebRequest -Uri $pngUrl -OutFile $pngPath -UseBasicParsing
 
-# Bypasses the "User Gesture" and "Visibility" requirement for autoplay
-function Start-Prank {
-    Start-Process chrome "--new-window --start-fullscreen --autoplay-policy=no-user-gesture-required --no-first-run $youtube"
-    Start-Process chrome "--new-window --start-fullscreen --no-first-run $bsod"
-}
+# --- 3. THE "NO-TAB" AUDIO PLAYER ---
+# Uses the native Windows Media Player COM object (runs in background)
+$player = New-Object -ComObject WMPlayer.OCX
+$player.URL = $mp3Path
+$player.settings.volume = 100
+$player.controls.play()
 
-Start-Prank
-$wshell = New-Object -ComObject WScript.Shell
+# --- 4. THE FULLSCREEN BSOD ---
+Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object Windows.Forms.Form
+$form.WindowState = "Maximized"
+$form.FormBorderStyle = "None"
+$form.TopMost = $true
+$form.ShowInTaskbar = $false
+$img = [System.Drawing.Image]::FromFile($pngPath)
+$form.BackgroundImage = $img
+$form.BackgroundImageLayout = "Stretch"
+$form.Show()
 
-while ((Get-Date) -lt $endTime) {
-    # FAST VOLUME BURST
-    for ($i=0; $i -lt 15; $i++) { $wshell.SendKeys([char]175) }
-
-    # Check for visible window titles
-    $chrome = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne "" }
-    $hasYT = $chrome | Where-Object { $_.MainWindowTitle -match "YouTube" }
-    $hasBS = $chrome | Where-Object { $_.MainWindowTitle -match "Bsod" }
-
-    # Respawn if closed
-    if (-not $hasYT -or -not $hasBS) {
-        Start-Prank
-        Start-Sleep -Seconds 2
-    }
-
-    # Pin BSOD to Top
-    foreach ($p in $chrome) {
-        if ($p.MainWindowTitle -match "Bsod") {
-            [Win]::SetWindowPos($p.MainWindowHandle, [Win]::T, 0, 0, 0, 0, 0x0001 + 0x0002)
-        }
-    }
+# --- 5. WATCHDOG LOOP ---
+$ws = New-Object -ComObject WScript.Shell
+$start = Get-Date
+while ((Get-Date) -lt $start.AddSeconds($duration)) {
+    # Force volume up in a loop
+    for ($i=0; $i -lt 5; $i++) { $ws.SendKeys([char]175) }
     
-    Start-Sleep -Milliseconds 50
+    # Keep the image window on top of everything
+    $form.Activate()
+    
+    # Loop audio if it ends
+    if ($player.playState -eq 1) { $player.controls.play() }
+    
+    Start-Sleep -Milliseconds 250
 }
 
-# Cleanup
-Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force
+# --- 6. CLEANUP ---
+$player.controls.stop()
+$form.Close()
+$img.Dispose()
+Remove-Item -Recurse -Force $tmp
